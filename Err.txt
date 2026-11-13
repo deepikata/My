@@ -1,0 +1,92 @@
+#include <QCoreApplication>
+#include <QFile>
+#include <QTextStream>
+#include <QDebug>
+#include "xlsxdocument.h"
+#include "xlsxformat.h"
+
+using namespace QXlsx;
+
+static const int FIRST_DATA_ROW = 3;
+
+// Find the first empty row in column A, starting from row 3
+int findNextRow(Document &xlsx)
+{
+    int row = FIRST_DATA_ROW;
+    while (xlsx.read(row, 1).isValid() && !xlsx.read(row, 1).toString().isEmpty())
+        ++row;
+    return row;
+}
+
+// Write one record into a particular row
+void writeRecord(Document &xlsx, int row, double low, double high,
+                 double value, const QString &crc)
+{
+    Format fmt;
+    fmt.setFontName("Arial");
+    fmt.setHorizontalAlignment(Format::AlignHCenter);
+    fmt.setBorderStyle(Format::BorderThin);
+
+    int serial = row - FIRST_DATA_ROW + 1;   // continuous: 1, 2, 3 ...
+
+    xlsx.write(row, 1, serial, fmt);   // A: Serial Number
+    xlsx.write(row, 2, low,    fmt);   // B: Low Threshold
+    xlsx.write(row, 3, high,   fmt);   // C: High Threshold
+    xlsx.write(row, 4, value,  fmt);   // D: Value
+    xlsx.write(row, 5, crc,    fmt);   // E: CRC
+}
+
+int main(int argc, char *argv[])
+{
+    QCoreApplication a(argc, argv);
+
+    const QString excelPath = "Book1.xlsx";   // your Excel file
+    const QString dataPath  = "data.txt";     // your other source file
+
+    // Open the existing Excel file
+    Document xlsx(excelPath);
+    if (!xlsx.isLoadPackage()) {
+        qDebug() << "Could not open" << excelPath;
+        return 1;
+    }
+
+    // Open the source file
+    QFile src(dataPath);
+    if (!src.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qDebug() << "Could not open" << dataPath;
+        return 1;
+    }
+
+    QTextStream in(&src);
+    int row = findNextRow(xlsx);
+
+    while (!in.atEnd()) {
+        const QString line = in.readLine().trimmed();
+        if (line.isEmpty())
+            continue;
+
+        const QStringList p = line.split(',');
+        if (p.size() < 4) {
+            qDebug() << "Skipping bad line:" << line;
+            continue;
+        }
+
+        writeRecord(xlsx, row,
+                    p[0].toDouble(),     // low threshold
+                    p[1].toDouble(),     // high threshold
+                    p[2].toDouble(),     // value
+                    p[3].trimmed());     // CRC
+        ++row;
+    }
+
+    if (xlsx.save())
+        qDebug() << "Saved. Rows written up to row" << (row - 1);
+    else
+        qDebug() << "Save failed. Close the file in Excel and try again.";
+
+    return 0;
+}
+QT += core
+CONFIG += c++17 console
+include(QXlsx/QXlsx.pri)
+SOURCES += main.cpp
